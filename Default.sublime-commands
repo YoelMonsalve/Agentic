@@ -1,0 +1,51 @@
+[
+    {
+        "caption": "AI Agent",
+        "command": "agentic_code"
+    },
+    {
+        "caption": "AI Agent Action",
+        "command": "agentic_action"
+    },
+    {
+        "caption": "AI Agent Model Chat",
+        "command": "agentic_model_chat"
+    },
+    {
+        "caption": "AI Agent Set Model",
+        "command": "agentic_set_model"
+    },
+    {
+        "caption": "AI Agent Chat Submit",
+        "command": "agentic_chat"
+    },
+    {
+        "caption": "AI Agent New Chat",
+        "command": "agentic_new_chat"
+    },
+    {
+        "caption": "AI Agent Clone Chat",
+        "command": "agentic_clone_chat"
+    },
+    {
+        "caption": "AI Agent Clear Reasoning",
+        "command": "agentic_clear_reasoning"
+    },
+    {
+        "caption": "AI Agent Sanitize",
+        "command": "agentic_sanitize"
+    },
+    {
+        "caption": "AI Agent Insert File",
+        "command": "agentic_insert_file"
+    },
+    {
+        "caption": "Preferences: AI Agent Settings",
+        "command": "edit_settings",
+        "args": {
+          "base_file": "${packages}/Agentic/Agentic.sublime-settings",
+          "user_file": "${packages}/User/Agentic.sublime-settings",
+          "default": "{\n\t$0\n}"
+        }
+    },
+]

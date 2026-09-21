@@ -1,0 +1,468 @@
+{
+	// Default values that the user can override
+	"default_prompt": "You are an expert programming agent. Focus on correctness and simplicity.",
+	"default_models": "models_high",
+
+	// These models are good for most programming tasks but can be slow:
+	"models_high": ["high_1"],
+
+	// These models are good for small, routine tasks
+	"models_low": ["low_1"],
+
+	// Enable output of reasoning tokens
+	"show_reasoning": true,
+
+	// Sanitize when you copy from a chat document
+	"sanitize_on_copy": true,
+
+	// Sanitize ALL model outputs (breaks caching)
+	"sanitize_output": false,
+
+	// output streaming status and est. cost to console ([ctrl] + [`])
+	"console_log": true,
+
+	// Actions take the currently selected code (or entire file if no code is selected)
+	//  and send it to the LLM to evaluate with a custom prompt.
+	"actions": {
+		// Each action has a key word (which shows up in the menu):
+		"simplify": {
+			// Name of list of models to use:
+			"models": "models_high",
+			// System prompt:
+			"system": "You are an expert programming agent. Make sure to never negatively impact the correctness or functionality of a program.",
+			// User prompt:
+			"prompt": "Analyze this code and simplify it as much as possible to improve conciseness and clarity. Ensure the code works, but please refactor it to be as minimal as possible to ensure performance and clarity."
+		},
+		"comment": {
+			"models": "models_high",
+			"system": "You are an expert programming agent. Make sure to carefully analyze the program line-by-line.",
+			"prompt": "Restructure and comment key parts of this code to make it more clear and easier to understand and read. Make sure to ensure maximum simplicity."
+		},
+		"fix": {
+			"models": "models_high",
+			"system": "You are an expert programming agent. Make sure to carefully analyze the program line-by-line.",
+			"prompt": "This code contains a critical logic error that impacts the functionality. Please analyze this code line-by-line for correctness and make a list of any potential issues that you see in each section. Make sure to highlight any glaring mistakes that you can find."
+		},
+		"expert-linux-bash": {  // from PromptingTools.jl
+			"models": "models_high",
+			"system": "You are a world-class Linux administrator with deep knowledge of various Linux distributions and expert in Shell scripting. \n\nYour communication is brief and concise. Your answers are very precise, practical and helpful. \nUse clear examples in your answers to illustrate your points.\n\nAnswer only when you're confident in the high quality of your answer.\n",
+			// empty "prompt" creates a chat without submitting
+		},
+		"haiku": {
+			"models": "models_low", // Save the planet
+			"system": "You are an expert.",
+			"prompt": "Turn this into a haiku."
+		},
+	},
+
+	// List of model configurations
+	"models": {
+		// Each model configuration is named, with params.
+		// Example configuration for local gpt-oss-20b with "high" and "low" reasoning:
+		"oss-20b-high-1": {
+			"url": "http://127.0.0.1:8080/v1/chat/completions", // local
+			"model": "gpt-oss-20b", // model name (from API)
+			"token": "000000000000", // Token for OpenAI API
+			"options": { // (API parameters here)
+				"stream": true,
+				"chat_template_kwargs": {"reasoning_effort": "high"},
+				"temperature": 1.0,
+				"top_p": 1.0,
+				"min_p": 0,
+				"top_k": 0
+			},
+			"context": 131072.0, // Max context length
+			"system": "my_gpu1", // Unique per-device id
+			"workers": 3,        // Number of concurrent chats supported
+			"speed": 120.0,      // Speed (tk/s for one chat)
+			"effort": 32768.0,   // Approx number of outputs
+			"cost": 0.042,       // $ per million tokens in+out
+			"no_system_prompt": false // converts system prompt to user if true (for EXAONE)
+		},
+
+		// New name for different configuration (same "model"/URL):
+		"oss-20b-low-1": {
+			"url": "http://127.0.0.1:8080/v1/chat/completions",
+			"model": "gpt-oss-20b",
+			"token": "000000000000",
+			"options": {
+				"stream": true,
+				"chat_template_kwargs": {"reasoning_effort": "low"},
+				"temperature": 1.0,
+				"top_p": 1.0,
+				"min_p": 0,
+				"top_k": 0
+			},
+			"context": 128000.0,
+			"system": "my_gpu1",
+			"workers": 3,
+			"speed": 120,
+			"effort": 512.0,
+			"cost": 0.042,
+		},
+
+		// The following are example configurations for common cloud providers:
+
+		//// groq example (recommended cloud provider):
+		// "groq-oss-120": {
+		// 	"url":"https://api.groq.com/openai/v1/chat/completions",
+		// 	"model": "openai/gpt-oss-120b",
+		// 	"token": "<YOUR_GROQ_API_KEY>",
+		// 	"options": {
+		// 		"stream": true,
+		// 		"reasoning_effort": "high",
+		// 		"temperature": 0.6,
+		// 		"top_p": 1,
+		// 		"presence_penalty": 0.5,
+		// 	},
+		// 	"context": 131072,
+		// 	"system": "groq",
+		// 	"workers": 1000.0,
+		// 	"speed": 500.0,
+		// 	"effort": 32768.0,
+		// 	"cost": 0.75
+		// },
+
+		//// Google configuration:
+		// "gemini-3-pro": {
+		// 	"url":"https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+		// 	"model": "gemini-3-pro-preview",
+		// 	"token": "<YOUR_GOOGLE_API_KEY>",
+		// 	"options": {
+		// 		"temperature": 1.0,
+		// 		"stream": true,
+		// 		"reasoning_effort": "high"
+		// 	},
+		// 	"context": 1050000,
+		// 	"system": "google",
+		// 	"workers": 1000.0,
+		// 	"speed": 77.0,
+		// 	"effort": 16384.0,
+		// 	"cost": 17.0,
+		// },
+
+		//// OpenAI configuration:
+		// "gpt-5": {
+		// 	"url":"https://api.openai.com/v1/chat/completions",
+		// 	"model": "gpt-5",
+		// 	"token": "<YOUR_OPENAI_API_KEY>",
+		// 	"options": {
+		// 		"stream": false,
+		// 		"reasoning_effort": "high",
+		// 		"verbosity": "low"
+		// 	},
+		// 	"context": 400000,
+		// 	"system": "openai",
+		// 	"workers": 1000.0,
+		// 	"speed": 40.0,
+		// 	"effort": 4096.0,
+		// 	"cost": 11.25
+		// },
+
+		//// Anthropic configuration:
+		// "claude-sonnet-4.5": {
+		// 	"url":"https://api.anthropic.com/v1/chat/completions",
+		// 	"model": "claude-sonnet-4-5",
+		// 	"token": "<YOUR_ANTHROPIC_API_KEY>",
+		// 	"options": {
+		// 		"stream": true,
+		// 		"temperature": 0.5,
+		// 		"extra_body":{
+		// 			"thinking": { "type": "enabled", "budget_tokens": 8192 }
+		// 		}
+		// 	},
+		// 	"context": 1000000,
+		// 	"system": "anthropic",
+		// 	"workers": 1000.0,
+		// 	"speed": 45.0,
+		// 	"effort": 16384.0,
+		// 	"cost": 18.0,
+		// },
+	},
+
+	// Rename these lookalike characters if sanitize_on_copy=true
+	"sanitize_dict": {
+		// SINGLE QUOTE
+		"'": [
+			"\u2019",  // ’ RIGHT SINGLE QUOTATION MARK
+			"\u2018",  // ‘ LEFT SINGLE QUOTATION MARK
+			"\u201b",  // ‛ SINGLE HIGH-9 QUOTATION MARK
+			"\u00b4",  // ´ ACUTE ACCENT
+			"\u2032",  // ′ PRIME
+			"\u02bc",  // ʼ MODIFIER LETTER APOSTROPHE
+			"\u02c8",  // ˈ MODIFIER LETTER VERTICAL LINE
+			"\u02ca",  // ˊ MODIFIER LETTER ACUTE ACCENT
+			"\u02bb",  // ʻ MODIFIER LETTER TURNED COMMA
+		],
+		"`": [
+			"\u2035",  // ‵ REVERSED PRIME
+			"\u0060",  // ` GRAVE ACCENT
+		],
+		"": [  // remove these
+			"\u200b",  // ZERO-WIDTH SPACE
+			"\u200c",  // ZERO-WIDTH NON-JOINER
+			"\u200d",  // ZERO-WIDTH JOINER
+			"\u200e",  // LEFT-TO-RIGHT MARK
+			"\u200f",  // RIGHT-TO-LEFT MARK
+		],
+
+		// DOUBLE QUOTE
+		"\"": [
+			"\u201c",  // “ LEFT DOUBLE QUOTATION MARK
+			"\u201d",  // ” RIGHT DOUBLE QUOTATION MARK
+			"\u201e",  // „ DOUBLE LOW-9 QUOTATION MARK
+			"\u201f",  // ‟ DOUBLE HIGH-REVERSED-9 QUOTATION MARK
+			"\u301d",  //〝 LEFT DOUBLE QUOTATION MARK (FULLWIDTH)
+			"\u301e",  // 〞 RIGHT DOUBLE QUOTATION MARK (FULLWIDTH)
+			"\u275d",  // ❝ HEAVY DOUBLE TURNED COMMA QUOTATION MARK ORNAMENT
+			"\u275e",  // ❞ HEAVY DOUBLE COMMA QUOTATION MARK ORNAMENT
+			"\uFF02",  // ＂ FULLWIDTH QUOTATION MARK
+		],
+
+		// SHIFT OPERATORS
+		">>": [
+			"\u00bb",  // » RIGHT‑POINTING DOUBLE ANGLE QUOTATION MARK
+			"\u300b",  // 》 RIGHT WHITE ANGLE BRACKET
+		],
+		"<<": [
+			"\u00ab",  // « LEFT‑POINTING DOUBLE ANGLE QUOTATION MARK
+			"\u300a",  // 《 LEFT WHITE ANGLE BRACKET
+		],
+
+		// WHITESPACE (everything that should become a plain ASCII space)
+		" ": [
+			"\u00a0",  // NO‑BREAK SPACE
+			"\u2000",  // EN QUAD
+			"\u2001",  // EM QUAD
+			"\u2002",  // EN SPACE
+			"\u2003",  // EM SPACE
+			"\u2004",  // THREE‑PER‑EM SPACE
+			"\u2005",  // FOUR‑PER‑EM SPACE
+			"\u2006",  // SIX‑PER‑EM SPACE
+			"\u2007",  // FIGURE SPACE
+			"\u2008",  // PUNCTUATION SPACE
+			"\u2009",  // THIN SPACE
+			"\u200a",  // HAIR SPACE
+			"\u202f",  // NARROW NO‑BREAK SPACE
+			"\u205f",  // MEDIUM MATHEMATICAL SPACE
+			"\u3000",  // IDEOGRAPHIC SPACE
+			"\u1680",  // OGHAM SPACE MARK
+			"\u180e",  // MONGOLIAN VOWEL SEPARATOR
+			"\u200b",  // ZERO‑WIDTH SPACE
+			"\u200c",  // ZERO‑WIDTH NON‑JOINER
+			"\u200d",  // ZERO‑WIDTH JOINER
+			"\u200e",  // LEFT‑TO‑RIGHT MARK
+			"\u200f",  // RIGHT‑TO‑LEFT MARK
+			"\u2028",  // LINE SEPARATOR
+			"\u2029",  // PARAGRAPH SEPARATOR
+		],
+
+		// PARENTHESES
+		"(": [
+			"\uFF08",  // （ FULLWIDTH LEFT PARENTHESIS
+			"\u207d",  // ⁽ SUPERSCRIPT LEFT PARENTHESIS
+			"\u208d",  // ₍ SUBSCRIPT LEFT PARENTHESIS
+			"\u239b",  // ⎛ LEFT PARENTHESIS WITH TICK
+			"\u239d",  // ⎝ LEFT PARENTHESIS WITH TICK (alternate)
+			"\uFE59",  // ﹙ SMALL LEFT PARENTHESIS
+			"\uFE5A",  // ﹚ MEDIUM LEFT PARENTHESIS
+		],
+		")": [
+			"\uFF09",  // ） FULLWIDTH RIGHT PARENTHESIS
+			"\u207e",  // ⁾ SUPERSCRIPT RIGHT PARENTHESIS
+			"\u208e",  // ₎ SUBSCRIPT RIGHT PARENTHESIS
+			"\uFE5A",  // ﹚ MEDIUM RIGHT PARENTHESIS
+		],
+
+		// CURLY BRACKETS
+		"{": [
+			"\uFF5B",  // ｛ FULLWIDTH LEFT CURLY BRACKET
+			"\uFE5B",  // ﹛ SMALL LEFT CURLY BRACKET
+		],
+		"}": [
+			"\uFF5D",  // ｝ FULLWIDTH RIGHT CURLY BRACKET
+			"\uFE5C",  // ﹜ SMALL RIGHT CURLY BRACKET
+		],
+
+		// SQUARE BRACKETS
+		"[": [
+			"\uFF3B",  // ［ FULLWIDTH LEFT SQUARE BRACKET
+			"\u3010",  // 【 LEFT WHITE SQUARE BRACKET
+			"\u3014",  // 〔 LEFT WHITE SQUARE BRACKET
+		],
+		"]": [
+			"\uFF3D",  // ］ FULLWIDTH RIGHT SQUARE BRACKET
+			"\u3011",  // 】 RIGHT WHITE SQUARE BRACKET
+			"\u3015",  // 〕 RIGHT WHITE SQUARE BRACKET
+		],
+
+		// ANGLE BRACKETS / COMPARISON SIGNS
+		"<": [
+			"\uFF1C",  // ＜ FULLWIDTH LESS‑THAN SIGN
+			"\u003c",  // < LESS‑THAN SIGN (canonical – kept for completeness)
+			"\u2329",  // 〈 LEFT ANGLE BRACKET
+			"\u3008",  // 〈 LEFT ANGLE BRACKET
+		],
+		">": [
+			"\uFF1E",  // ＞ FULLWIDTH GREATER‑THAN SIGN
+			"\u003e",  // > GREATER‑THAN SIGN (canonical)
+			"\u232a",  // 〉 RIGHT ANGLE BRACKET
+			"\u3009",  // 〉 RIGHT ANGLE BRACKET
+		],
+
+		// MATH / ARITHMETIC OPERATORS
+		"+": [
+			"\u002b",  // + PLUS SIGN (canonical)
+			"\uFF0B",  // ＋ FULLWIDTH PLUS SIGN
+		],
+		"-": [
+			"\u002d",  // - HYPHEN‑MINUS
+			"\u2212",  // − MINUS SIGN
+			"\u2010",  // ‐ HYPHEN
+			"\u2011",  // ‑ NON‑BREAKING HYPHEN
+			"\u2012",  // ‒ FIGURE DASH
+			"\u2013",  // – EN DASH
+			"\u2014",  // — EM DASH
+			"\u2015",  // ― HORIZONTAL BAR
+		],
+		"*": [
+			"\u002a",  // * ASTERISK
+			"\u00d7",  // × MULTIPLICATION SIGN
+			"\u2217",  // ∗ ASTERISK OPERATOR
+			"\u2219",  // ∙ BULLET OPERATOR
+		],
+		"/": [
+			"\u002f",  // / SOLIDUS
+			"\u00f7",  // ÷ DIVISION SIGN
+			"\u2215",  // ∕ DIVISION SLASH
+			"\uFF0F",  // ／ FULLWIDTH SOLIDUS
+		],
+		"\\": [          // BACKSLASH (reverse solidus)
+			"\uFF3C",  // ＼ FULLWIDTH REVERSE SOLIDUS
+			"\uFE68",  // ﹨ SMALL REVERSE SOLIDUS
+			"\u2216",  // ∖ SET MINUS (looks like a backslash)
+			"\u29F5",  // ⧵ REVERSE SOLIDUS OPERATOR
+			"\u29F9",  // ⧹ REVERSE SOLIDUS
+			"\u20E5",  // ⃥ COMBINING REVERSE SOLIDUS OVERLAY (rare)
+		],
+		"|": [
+			"\u007c",  // | VERTICAL LINE (canonical)
+			"\uFF5C",  // ｜ FULLWIDTH VERTICAL LINE (CJK typography)【8】【9】
+			"\u2502",  // │ BOX DRAWINGS LIGHT VERTICAL (terminal/UI graphics)【10】【11】
+			"\u2503",  // ┃ BOX DRAWINGS HEAVY VERTICAL (thicker variant)【12】【13】
+		],
+		"^": [
+			"\u005e",  // ^ CIRCUMFLEX ACCENT (canonical)
+			"\uFF3E",  // ＾ FULLWIDTH CIRCUMFLEX ACCENT (CJK typography)【0】【1】
+			"\u02C6",  // ˆ MODIFIER LETTER CIRCUMFLEX ACCENT (phonetic use)【2】【3】
+			"\u2303",  // ⌃ UP ARROWHEAD (caret-shaped symbol)【4】【5】
+			"\u2227",  // ∧ LOGICAL AND (mathematical operator with caret shape)【6】【7】
+		],
+		"=": [
+			"\uFF1D", // ＝ FULLWIDTH EQUALS SIGN
+		],
+		":=": ["\u2254"], // ≔
+		"=:": ["\u2255"], // ≕
+
+		// EXCLAMATION MARKS
+		"!": [
+			"\u0021",  // ! EXCLAMATION MARK
+			"\uFF01",  // ！ FULLWIDTH EXCLAMATION MARK
+			"\u2757",  // ❗ HEAVY EXCLAMATION MARK
+			"\u2763",  // ❣ HEAVY HEART EXCLAMATION MARK (optional)
+		],
+		"!!": [
+			"\u203c",  // ‼ DOUBLE EXCLAMATION MARK
+		],
+
+		// SEMICOLON (with great power...)
+		";": [
+			"\u003b", // ; SEMICOLON (canonical – kept for completeness)
+			"\uFF1B", // ； FULLWIDTH SEMICOLON
+			"\u037E", // ; GREEK QUESTION MARK (visually a semicolon)
+			"\uFE14", // ︔ PRESENTATION FORM FOR VERTICAL SEMICOLON
+		],
+		":": [
+			"\u003a",  // : COLON (canonical)
+			"\uFF1A",  // ： FULLWIDTH COLON (used in East Asian typography)【0】【1】
+			"\uFE13",  // ︓ PRESENTATION FORM FOR VERTICAL COLON (vertical text layout)【2】【3】
+			"\uFE55",  // ﹕ SMALL COLON (small form variant)【4】【5】
+			"\uA789",  // ꞉ MODIFIER LETTER COLON (phonetic transcription)【6】【7】
+		],
+
+		// COMMA
+		",": [
+			"\u002c",  // , COMMA
+			"\u02CC",  // ˌ MODIFIER LETTER LOW VERTICAL LINE (secondary stress mark)【16】【17】
+			"\u201a",  // ‚ SINGLE LOW-9 QUOTATION MARK
+			"\uFF0c",  // ， FULLWIDTH COMMA
+
+		],
+
+		// PERIOD / DOT(s)
+		".": [
+			"\u002e",  // . FULL STOP
+			"\u2024",  // ․ ONE DOT LEADER
+			"\uFF0e",  // ． FULLWIDTH FULL STOP
+			"\uFF61",  // ｡ HALFWIDTH IDEOGRAPHIC FULL STOP
+		],
+		"..": [
+			"\u2025",  // ‥ TWO DOT LEADER
+		],
+		"...": [
+			"\u2026",  // … HORIZONTAL ELLIPSIS
+		],
+
+		// QUESTION MARK
+		"?": [
+			"\u003f",  // ? QUESTION MARK
+			"\u2047",  // ? (DOUBLE QUESTION MARK)
+			"\uFF1F",  // ？ FULLWIDTH QUESTION MARK
+			"\u2753",  // ❓ HEAVY QUESTION MARK
+		],
+		"??": [
+			"\u2047",  // ⁇ combined
+		],
+		"?!": [
+			"\u2048",  // ⁈ INTERROBANG
+		],
+
+		// NEWLINE (everything that should be treated as “line‑feed”)
+		"\n": [
+			"\u000a",  // LF
+			"\u0085",  // NEL
+			"\u2028",  // LINE SEPARATOR
+			"\u2029",  // PARAGRAPH SEPARATOR
+			"\u000c",  // FORM FEED
+			"\u000b",  // VERTICAL TAB
+		],
+
+		// Misc
+		"->":  [
+			"\u2192", // →
+			"\u23E9",  // ⏩ fast-forward (gpt-oss)
+		],
+		"<-": [
+			"\u2190", // ←
+			"\u23Ea",  // ⏪ fast-reverse (gpt-oss)
+		],
+		"<->": ["\u2194"], // ↔
+		"=>": ["\u21D2"], // ⇒
+		"<=>": ["\u21D4"], // ⇔
+		"<=": ["\u2264"], // ≤
+		">=": ["\u2265"], // ≥
+		"!=": ["\u2260"], // ≠
+
+		// Numbers (gpt-oss writes these often)
+		"0.": ["\u0030\uFE0F\u20E3"], // 0️⃣
+		"1.": ["\u0031\uFE0F\u20E3"], // 1️⃣
+		"2.": ["\u0032\uFE0F\u20E3"], // 2️⃣
+		"3.": ["\u0033\uFE0F\u20E3"], // 3️⃣
+		"4.": ["\u0034\uFE0F\u20E3"], // 4️⃣
+		"5.": ["\u0035\uFE0F\u20E3"], // 5️⃣
+		"6.": ["\u0036\uFE0F\u20E3"], // 6️⃣
+		"7.": ["\u0037\uFE0F\u20E3"], // 7️⃣
+		"8.": ["\u0038\uFE0F\u20E3"], // 8️⃣
+		"9.": ["\u0039\uFE0F\u20E3"], // 9️⃣
+	},
+}

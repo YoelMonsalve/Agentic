@@ -49,7 +49,7 @@ def extract_file_mentions(text):
     clean_text = _strip_markdown_code(text)
 
     candidates = []
-    for match in FILE_MENTION_RE.finditer(text):
+    for match in FILE_MENTION_RE.finditer(clean_text):
         quoted_double = match.group(1)
         quoted_single = match.group(2)
         unquoted = match.group(3)

@@ -108,6 +108,12 @@ def apply_single_block(current_content, search_text, replace_text):
     Applies a single SEARCH/REPLACE block to current_content.
     Returns the new updated string, or raises PatchError.
     """
+    # New file / empty file creation
+    if not search_text.strip():
+        if not current_content.strip():
+            return replace_text
+        raise PatchError("SEARCH block is empty, but the target file is not empty. Provide context to match.")
+             
     # 1. Exact match attempt
     match_span = _find_exact(current_content, search_text)
     if match_span:

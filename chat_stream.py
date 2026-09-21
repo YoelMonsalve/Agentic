@@ -47,11 +47,6 @@ import sublime_plugin
 
 # Imports
 try:
-    from .lib.file_injector import process_messages_file_mentions
-except (ImportError, ValueError):
-    from lib.file_injector import process_messages_file_mentions
-
-try:
     from .lib.file_injector import process_messages_file_mentions, resolve_path
     from .lib.patch_parser import parse_patch_blocks
     from .lib.patch_engine import apply_patch_blocks
@@ -420,6 +415,9 @@ class AgentStreamingTask(threading.Thread):
             return
         self.registry.pop(self.view.id(), None)
 
+        # Flush any remaining buffer chunks to the view before reading
+        self.__flush()
+
         # Inspect completed response for SEARCH/REPLACE blocks
         full_chat = self.view.substr(sublime.Region(0, self.view.size()))
         # Grab the last Agent response block
@@ -565,6 +563,34 @@ def _read_selection(view):
         content = view.substr(sublime.Region(0, view.size()))
     return content
 
+def _resolve_target_path(filepath, window):
+    """
+    Resolve target filepath for existing or new files.
+    Tries resolve_path first. If not found on disk, resolves relative to:
+      1. First window project folder
+      2. Directory of active view file
+      3. Absolute path / working directory
+    """
+    resolved = resolve_path(filepath, window=window)
+    if resolved: return resolved
+
+    # If it's already an absolute path
+    if os.path.isabs(filepath):
+        return os.path.normpath(filepath)
+    # otherwise, ..
+    #+1. Relative to first window project folder
+    folders = window.folders() if window else []
+    if folders:
+        return os.path.normpath(os.path.join(folders[0], filepath))
+    # 2. Relative to active file's directory
+    if window:
+        active_view = window.active_view()
+        if active_view and active_view.file_name():
+            return os.path.normpath(os.path.join(os.path.dirname(active_view.file_name()), filepath))
+    # 3. Fallback to current working directory
+    return os.path.normpath(os.path.abspath(filepath))
+
+
 def apply_parsed_patches(window, blocks):
     """
     Takes a list of FilePatchBlock objects and applies them to open views or files on disk.
@@ -576,17 +602,18 @@ def apply_parsed_patches(window, blocks):
     # Group blocks by resolved path
     grouped = {}
     for block in blocks:
-        resolved = resolve_path(block.filepath, window=window)
+        resolved = _resolve_target_path(block.filepath, window=window)
         if not resolved:
             return ["Error: Cannot resolve file path '{}'".format(block.filepath)]
         grouped.setdefault(resolved, []).append(block)
 
     results = []
     for filepath, file_blocks in grouped.items():
+        is_new_file = not os.path.exists(filepath)
+
         # Check if already open in Sublime
-        view = window.find_open_file(filepath)
+        view = window.find_open_file(filepath) if window else None
         if view and view.is_loading():
-            # Wait briefly or fall back
             time.sleep(0.1)
 
         if view and view.is_valid():
@@ -594,23 +621,33 @@ def apply_parsed_patches(window, blocks):
             success, new_content, err = apply_patch_blocks(original_content, file_blocks)
             if success:
                 view.run_command("agentic_apply_buffer_patch", {"new_content": new_content})
-                results.append("✓ Updated {} in editor ({} block{})".format(
-                    os.path.basename(filepath), len(file_blocks), "s" if len(file_blocks) > 1 else ""))
+                action_str = "Created" if (is_new_file or not original_content.strip()) else "Updated"
+                results.append("✓ {} {} in editor ({} block{})".format(
+                    action_str, os.path.basename(filepath), len(file_blocks), "s" if len(file_blocks) > 1 else ""))
             else:
                 results.append("✗ Failed to patch {}: {}".format(os.path.basename(filepath), err))
         else:
             # File is on disk; read, modify, and open in Sublime
             try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    original_content = f.read()
+                original_content = ""
+                if not is_new_file:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        original_content = f.read()
 
                 success, new_content, err = apply_patch_blocks(original_content, file_blocks)
                 if success:
+                    parent_dir = os.path.dirname(filepath)
+                    if parent_dir and not os.path.exists(parent_dir):
+                        os.makedirs(parent_dir, exists_ok=True)
+
                     with open(filepath, "w", encoding="utf-8") as f:
                         f.write(new_content)
-                    window.open_file(filepath)
-                    results.append("✓ Updated {} on disk ({} block{})".format(
-                        os.path.basename(filepath), len(file_blocks), "s" if len(file_blocks) > 1 else ""))
+                    if window:
+                        window.open_file(filepath)
+
+                    action_str = "Created" if is_new_file else "Updated"
+                    results.append("✓ {} {} on disk ({} block{})".format(
+                        action_str, os.path.basename(filepath), len(file_blocks), "s" if len(file_blocks) > 1 else ""))
                 else:
                     results.append("✗ Failed to patch {}: {}".format(os.path.basename(filepath), err))
             except Exception as e:
@@ -1083,6 +1120,12 @@ Rules:
 1. Output the relative path immediately before each SEARCH block.
 2. Include enough surrounding lines in SEARCH so the match is completely unique.
 3. Keep indentation and whitespace exact.
+4. To CREATE a new file, output an empty SEARCH block:
+path/to/new/file.ext
+<<<<<<< SEARCH
+=======
+entire content of the new file
+>>>>>>> REPLACE
 """
 
 class AgenticEditFileCommand(sublime_plugin.WindowCommand):
@@ -1114,14 +1157,16 @@ class AgenticEditFileCommand(sublime_plugin.WindowCommand):
         if not prompt:
             return
 
-        # Prepare user prompt with @file mention
-        if file_path:
+        # Prepare user prompt with @file mention only if the file actually exists
+        if file_path and os.path.exists(file_path):
             rel = file_path
             for folder in self.window.folders():
                 if file_path.startswith(folder):
                     rel = os.path.relpath(file_path, folder)
                     break
             user_msg = "Please edit @{}\n\nInstruction: {}".format(rel, prompt)
+        elif file_path:
+            user_msg = "Please create file `{}`\n\nInstruction: {}".format(file_path, prompt)
         else:
             user_msg = prompt
 
@@ -1133,4 +1178,5 @@ class AgenticEditFileCommand(sublime_plugin.WindowCommand):
         chat_view = _create_chat(self.window, "Edit " + (os.path.basename(file_path) if file_path else "File"), chat_text)
 
         messages = _build_messages_from_text(chat_text)
+        _printstatus("Starting edit for {}".format(os.path.basename(file_path) if file_path else "file"))
         start_streaming(chat_view, messages)

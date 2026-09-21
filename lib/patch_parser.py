@@ -72,7 +72,7 @@ def parse_patch_blocks(response_text):
     Returns a list of FilePatchBlock instances.
     """
     blocks = []
-    if not response_text or "<<<<<<< SEARCH" not in response_text:
+    if not response_text or not _SEARCH_START_RE.search(response_text):
         return blocks
 
     # Split text by SEARCH markers

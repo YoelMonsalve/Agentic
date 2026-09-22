@@ -21,6 +21,24 @@
 	// output streaming status and est. cost to console ([ctrl] + [`])
 	"console_log": true,
 
+	// Maximum number of files scanned in directory tree (default: 500)
+	"inspect_max_scanned_files": 500,
+
+	// Maximum candidate files selected by the model (default: 6)
+	"inspect_max_candidates": 6,
+
+	// Prompt confirmation if candidate files count is >= threshold (set 0 to disable)
+	"inspect_confirm_file_count_threshold": 5,
+
+	// Prompt confirmation if total combined size in KB is >= threshold (set 0 to disable)
+	"inspect_confirm_total_kb_threshold": 100,
+
+	// Additional file patterns to ignore during folder inspection
+	"inspect_ignore_patterns": [
+	"*.log",
+	"vendor/*"
+	],
+
 	// Actions take the currently selected code (or entire file if no code is selected)
 	//  and send it to the LLM to evaluate with a custom prompt.
 	"actions": {

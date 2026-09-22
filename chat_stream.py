@@ -50,10 +50,12 @@ try:
     from .lib.file_injector import process_messages_file_mentions, resolve_path
     from .lib.patch_parser import parse_patch_blocks
     from .lib.patch_engine import apply_patch_blocks
+    from .lib.inspector import scan_folder, query_llm_for_candidates
 except (ImportError, ValueError):
     from lib.file_injector import process_messages_file_mentions, resolve_path
     from lib.patch_parser import parse_patch_blocks
     from lib.patch_engine import apply_patch_blocks
+    from lib.inspector import scan_folder, query_llm_for_candidates
 
 # Safer lower bound for code + English
 CHARS_PER_TOKEN = 3.5  
@@ -74,7 +76,7 @@ _SANITIZE_RE = None
 _LAST_MODEL_IDX = {}
 
 SLASH_CMD_RE = re.compile(
-    r"^\s*/(?P<cmd>edit|create)\s+(?:@?\"(?P<quoted>[^\"]+)\"|@?(?P<unquoted>\S+))(?:\s+(?P<prompt>[\s\S]*))?$",
+    r"^\s*/(?P<cmd>edit|create|inspect)(?:\s+(?:folder\s+)?(?:@?\"(?P<quoted>[^\"]+)\"|@?(?P<unquoted>\S+)))?(?:\s+(?P<prompt>[\s\S]*))?$",
     re.IGNORECASE
 )
 
@@ -146,6 +148,16 @@ def _extract_slash_command(messages):
     cmd = match.group("cmd").lower()
     filepath = match.group("quoted") or match.group("unquoted")
     prompt = (match.group("prompt") or "").strip()
+
+    # If inspect command had 'folder' captured as the target but the actual path is in prompt
+    if cmd == "inspect" and filepath and filepath.lower() == "folder" and prompt:
+        m = re.match(r'^(?:@?"([^"]+)"|@?(\S+))(?:\s+([\s\S]*))?$', prompt)
+        if m:
+            filepath = m.group(1) or m.group(2)
+            prompt = (m.group(3) or "").strip()
+    elif cmd == "inspect" and filepath and filepath.lower() == "folder" and not prompt:
+        filepath = None
+
     return cmd, filepath, prompt
 
 def chat_stream(messages, model, cancel=None):
@@ -593,6 +605,44 @@ def _read_selection(view):
         content = view.substr(sublime.Region(0, view.size()))
     return content
 
+def _resolve_target_folder(folder_path, window):
+    """
+    Resolve target directory. Tries:
+      1. Absolute path if exists
+      2. Relative to window project folders
+      3. Relative to active file directory
+      4. Current working directory
+    """
+    if not folder_path:
+        return None
+
+    cleaned = folder_path.strip().lstrip("@").strip('\'"')
+    if os.path.isabs(cleaned) and os.path.isdir(cleaned):
+        return os.path.normpath(cleaned)
+
+    folders = window.folders() if window else []
+    for f in folders:
+        cand = os.path.normpath(os.path.join(f, cleaned))
+        if os.path.isdir(cand):
+            return cand
+
+    if window:
+        active_view = window.active_view()
+        if active_view and active_view.file_name():
+            cand = os.path.normpath(os.path.join(os.path.dirname(active_view.file_name()), cleaned))
+            if os.path.isdir(cand):
+                return cand
+
+    cand = os.path.normpath(os.path.abspath(cleaned))
+    if os.path.isdir(cand):
+        return cand
+
+    if cleaned in ("", ".") and folders:
+        return folders[0]
+
+    return None
+
+
 def _resolve_target_path(filepath, window):
     """
     Resolve target filepath for existing or new files.
@@ -755,6 +805,13 @@ class AgenticChatCommand(sublime_plugin.WindowCommand):
             self.window.run_command("agentic_create_file", {
                 "file_path": filepath,
                 "prompt": prompt or None
+            })
+            return
+        elif cmd == "inspect":
+            self.window.run_command("agentic_inspect_folder", {
+                "folder_path": filepath,
+                "prompt": prompt or None,
+                "view_id": view.id()
             })
             return
         # -----------------------------------
@@ -1293,3 +1350,254 @@ class AgenticCreateFileCommand(sublime_plugin.WindowCommand):
         messages = _build_messages_from_text(chat_text)
         _printstatus("Starting file creation for {}".format(os.path.basename(file_path)))
         start_streaming(chat_view, messages)
+
+
+class AgenticInspectFolderCommand(sublime_plugin.WindowCommand):
+    """
+    Inspect a folder, query LLM for relevant candidate files,
+    and inject candidate files into conversation context.
+    """
+    def run(self, folder_path=None, prompt=None, view_id=None):
+        folders = self.window.folders() if self.window else []
+
+        target_dir = None
+        if folder_path:
+            cleaned = folder_path.strip().lstrip("@").strip('\'"')
+            target_dir = _resolve_target_folder(cleaned, self.window)
+            # If folder_path was omitted and user typed prompt directly (e.g. /inspect <prompt>)
+            if not target_dir and not folder_path.startswith("@") and folders:
+                prompt = (folder_path + " " + (prompt or "")).strip()
+                folder_path = None
+                target_dir = folders[0]
+
+        if not target_dir:
+            if not folder_path:
+                if folders:
+                    options = list(folders) + ["(Enter custom folder path...)"]
+                    def on_folder_chosen(idx):
+                        if idx < 0:
+                            return
+                        if idx < len(folders):
+                            self._on_folder_selected(folders[idx], prompt, view_id)
+                        else:
+                            self.window.show_input_panel(
+                                "Folder to inspect:",
+                                folders[0],
+                                lambda p: self._on_folder_selected(p, prompt, view_id),
+                                None,
+                                None
+                            )
+                    self.window.show_quick_panel(options, on_folder_chosen)
+                    return
+                else:
+                    self.window.show_input_panel(
+                        "Folder to inspect:",
+                        ".",
+                        lambda p: self._on_folder_selected(p, prompt, view_id),
+                        None,
+                        None
+                    )
+                    return
+            else:
+                sublime.status_message("Folder not found: {}".format(folder_path))
+                return
+
+        if not prompt:
+            folder_name = os.path.basename(target_dir) or target_dir
+            self.window.show_input_panel(
+                "Inspect {} - Inquiry / Prompt:".format(folder_name),
+                "",
+                lambda p: self._on_prompt_entered(target_dir, p, view_id),
+                None,
+                None
+            )
+            return
+
+        self._on_prompt_entered(target_dir, prompt, view_id)
+
+    def _on_folder_selected(self, folder_path, prompt=None, view_id=None):
+        target_dir = _resolve_target_folder(folder_path, self.window)
+        if not target_dir:
+            sublime.status_message("Folder not found: {}".format(folder_path))
+            return
+
+        if not prompt:
+            folder_name = os.path.basename(target_dir) or target_dir
+            self.window.show_input_panel(
+                "Inspect {} - Inquiry / Prompt:".format(folder_name),
+                "",
+                lambda p: self._on_prompt_entered(target_dir, p, view_id),
+                None,
+                None
+            )
+            return
+
+        self._on_prompt_entered(target_dir, prompt, view_id)
+
+    def _on_prompt_entered(self, target_dir, prompt, view_id=None):
+        prompt = (prompt or "").strip()
+        if not prompt:
+            return
+
+        threading.Thread(
+            target=self._run_inspection,
+            args=(target_dir, prompt, view_id),
+            daemon=True
+        ).start()
+
+    def _run_inspection(self, target_dir, prompt, view_id):
+        try:
+            folder_display = os.path.basename(target_dir) or target_dir
+            _printstatus("Agentic: Inspecting folder '{}'...".format(folder_display))
+
+            settings = sublime.load_settings("Agentic.sublime-settings")
+            max_scanned = settings.get("inspect_max_scanned_files", 500)
+            max_candidates = settings.get("inspect_max_candidates", 6)
+            confirm_file_count = settings.get("inspect_confirm_file_count_threshold", 5)
+            confirm_kb_count = settings.get("inspect_confirm_total_kb_threshold", 100)
+            custom_patterns = settings.get("inspect_ignore_patterns", [])
+
+            scanned_files = scan_folder(target_dir, max_files=max_scanned, custom_patterns=custom_patterns)
+            if not scanned_files:
+                sublime.set_timeout(lambda: sublime.status_message(
+                    "Agentic: No inspectable files found in {}".format(folder_display)
+                ), 0)
+                return
+
+            _printstatus("Agentic: Querying LLM for candidates across {} files...".format(len(scanned_files)))
+
+            target_view = None
+            if view_id:
+                for v in self.window.views():
+                    if v.id() == view_id and v.is_valid():
+                        target_view = v
+                        break
+
+            model_name = None
+            if target_view and target_view.settings().get("agent_model"):
+                model_name = target_view.settings().get("agent_model")
+            if not model_name:
+                model_name = _pick_model()
+
+            models = settings.get("models", {})
+            model_info = models.get(model_name)
+            if not model_info:
+                sublime.set_timeout(lambda: sublime.error_message(
+                    "Agentic: Model configuration '{}' not found".format(model_name)
+                ), 0)
+                return
+
+            candidates = query_llm_for_candidates(
+                scanned_files, prompt, model_info, max_candidates=max_candidates
+            )
+
+            if not candidates:
+                sublime.set_timeout(lambda: sublime.status_message(
+                    "Agentic Inspect: No relevant files identified in {}".format(folder_display)
+                ), 0)
+                return
+
+            candidate_sizes = {}
+            total_bytes = 0
+            for rel in candidates:
+                full = os.path.join(target_dir, rel)
+                try:
+                    sz = os.path.getsize(full)
+                except OSError:
+                    sz = 0
+                candidate_sizes[rel] = sz
+                total_bytes += sz
+
+            total_kb = total_bytes / 1024.0
+
+            needs_confirm = False
+            if confirm_file_count > 0 and len(candidates) >= confirm_file_count:
+                needs_confirm = True
+            if confirm_kb_count > 0 and total_kb >= confirm_kb_count:
+                needs_confirm = True
+
+            if needs_confirm:
+                file_list_str = "\n".join(
+                    "  • {} ({:.1f} KB)".format(c, candidate_sizes[c] / 1024.0)
+                    for c in candidates
+                )
+                dialog_msg = (
+                    "Agentic Inspector selected {} candidate files ({:.1f} KB total):\n\n"
+                    "{}\n\n"
+                    "Inject these files into context and proceed?"
+                ).format(len(candidates), total_kb, file_list_str)
+
+                confirmed = [False]
+                event = threading.Event()
+                def ask():
+                    confirmed[0] = sublime.ok_cancel_dialog(dialog_msg, "Inject Files")
+                    event.set()
+                sublime.set_timeout(ask, 0)
+                event.wait()
+
+                if not confirmed[0]:
+                    _printstatus("Agentic: Inspection cancelled by user.")
+                    sublime.set_timeout(lambda: sublime.status_message("Inspection cancelled"), 0)
+                    return
+
+            sublime.set_timeout(
+                lambda: self._apply_inspection_results(target_dir, prompt, candidates, view_id),
+                0
+            )
+
+        except Exception as e:
+            _printstatus("Agentic inspect error: {}".format(str(e)))
+            sublime.set_timeout(lambda: sublime.error_message("Agentic Inspect Error:\n{}".format(str(e))), 0)
+
+    def _apply_inspection_results(self, target_dir, prompt, candidates, view_id):
+        folder_display = os.path.basename(target_dir) or target_dir
+        folders = self.window.folders() if self.window else []
+
+        rel_mentions = []
+        for c in candidates:
+            full_c = os.path.join(target_dir, c)
+            rel_p = full_c
+            for f in folders:
+                try:
+                    rel = os.path.relpath(full_c, f)
+                    if not rel.startswith(".."):
+                        rel_p = rel
+                        break
+                except ValueError:
+                    pass
+
+            if " " in rel_p:
+                rel_mentions.append('@"{}"'.format(rel_p))
+            else:
+                rel_mentions.append("@{}".format(rel_p))
+
+        mentions_str = "\n".join(rel_mentions)
+        user_msg = "{}\n\nCandidate files inspected from `{}`:\n{}".format(
+            prompt, folder_display, mentions_str
+        )
+
+        target_view = None
+        if view_id:
+            for v in self.window.views():
+                if v.id() == view_id and v.is_valid():
+                    target_view = v
+                    break
+
+        if target_view and target_view.settings().get("agentic_is_chat"):
+            full_text = target_view.substr(sublime.Region(0, target_view.size()))
+            messages = _build_messages_from_text(full_text)
+            if messages and messages[-1].get("role") == "user":
+                messages[-1]["content"] = user_msg
+            else:
+                messages.append({"role": "user", "content": user_msg})
+
+            new_chat_text = _rebuild_text(messages) + "\n"
+            target_view.run_command("agentic_apply_buffer_patch", {"new_content": new_chat_text})
+            final_messages = _build_messages_from_text(new_chat_text)
+            start_streaming(target_view, final_messages)
+        else:
+            default_system = sublime.load_settings("Agentic.sublime-settings").get("default_prompt", "")
+            chat_text = "# --- System ---\n{}\n\n# --- User ---\n{}\n".format(default_system, user_msg)
+            chat_view = _create_chat(self.window, "Inspect " + folder_display, chat_text)
+            final_messages = _build_messages_from_text(chat_text)
+            start_streaming(chat_view, final_messages)

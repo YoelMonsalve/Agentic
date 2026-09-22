@@ -758,7 +758,7 @@ class AgenticChatCommand(sublime_plugin.WindowCommand):
             })
             return
         # -----------------------------------
-        
+
         view.settings().set("agentic_is_chat", True)
         view.set_syntax_file("Packages/Markdown/Markdown.sublime-syntax")
 
@@ -1187,8 +1187,12 @@ class AgenticEditFileCommand(sublime_plugin.WindowCommand):
         if not file_path and view and view.file_name():
             file_path = view.file_name()
 
-        if not file_path:
-            sublime.status_message("No file specified or active to edit")
+        # If path is relative, resolve it relative to window folders
+        if file_path:
+            file_path = _resolve_target_path(file_path, self.window)
+
+        if not file_path or not os.path.exists(file_path):
+            sublime.status_message("File to edit does not exist: {}".format(file_path))
             return
 
         if not prompt:

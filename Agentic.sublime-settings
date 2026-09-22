@@ -1,6 +1,6 @@
 {
 	// Default values that the user can override
-	"default_prompt": "You are an expert programming agent. Focus on correctness and simplicity.",
+	"default_prompt": "You are an expert programming agent. Focus on correctness and simplicity..\n\nWhen editing or creating files, always output changes using SEARCH/REPLACE blocks:\n\npath/to/file.ext\n<<<<<<< SEARCH\nexact lines to be removed\n=======\nreplacement lines\n>>>>>>> REPLACE\n\nTo CREATE a new file, leave SEARCH empty:\npath/to/new/file.ext\n<<<<<<< SEARCH\n=======\nentire file content\n>>>>>>> REPLACE",
 	"default_models": "models_high",
 
 	// These models are good for most programming tasks but can be slow:
@@ -47,6 +47,10 @@
 			"models": "models_high",
 			"system": "You are a world-class Linux administrator with deep knowledge of various Linux distributions and expert in Shell scripting. \n\nYour communication is brief and concise. Your answers are very precise, practical and helpful. \nUse clear examples in your answers to illustrate your points.\n\nAnswer only when you're confident in the high quality of your answer.\n",
 			// empty "prompt" creates a chat without submitting
+		},
+		"coding": {
+			"models": "models_high",
+			"system": "You are an expert coding assistant.\n\nWhen editing or creating files, always output changes using SEARCH/REPLACE blocks:\n\npath/to/file.ext\n<<<<<<< SEARCH\nexact lines to be removed\n=======\nreplacement lines\n>>>>>>> REPLACE\n\nTo CREATE a new file, leave SEARCH empty:\npath/to/new/file.ext\n<<<<<<< SEARCH\n=======\nentire file content\n>>>>>>> REPLACE"
 		},
 		"haiku": {
 			"models": "models_low", // Save the planet

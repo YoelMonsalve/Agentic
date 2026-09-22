@@ -40,6 +40,14 @@
         "command": "agentic_insert_file"
     },
     {
+        "caption": "AI Agent Edit File",
+        "command": "agentic_edit_file"
+    },
+    {
+        "caption": "AI Agent Create File",
+        "command": "agentic_create_file"
+    },
+    {
         "caption": "Preferences: AI Agent Settings",
         "command": "edit_settings",
         "args": {

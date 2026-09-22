@@ -73,6 +73,11 @@ _SANITIZE_DICT = None
 _SANITIZE_RE = None
 _LAST_MODEL_IDX = {}
 
+SLASH_CMD_RE = re.compile(
+    r"^\s*/(?P<cmd>edit|create)\s+(?:@?\"(?P<quoted>[^\"]+)\"|@?(?P<unquoted>\S+))(?:\s+(?P<prompt>[\s\S]*))?$",
+    re.IGNORECASE
+)
+
 def _printstatus(msg):
     sublime.status_message(msg)
     if sublime.load_settings("Agentic.sublime-settings").get("console_log", False):
@@ -117,6 +122,31 @@ def _parse_metrics(r):
                 u.get("completion_tokens", 0) / ct)
     return None
 
+def _extract_slash_command(messages):
+    """
+    Checks if the last user message begins with a slash command.
+    Returns (cmd_name, target_file, prompt) or (None, None, None).
+    """
+    if not messages:
+        return None, None, None
+
+    last_user_msg = None
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            last_user_msg = m.get("content", "").strip()
+            break
+
+    if not last_user_msg:
+        return None, None, None
+
+    match = SLASH_CMD_RE.match(last_user_msg)
+    if not match:
+        return None, None, None
+
+    cmd = match.group("cmd").lower()
+    filepath = match.group("quoted") or match.group("unquoted")
+    prompt = (match.group("prompt") or "").strip()
+    return cmd, filepath, prompt
 
 def chat_stream(messages, model, cancel=None):
     """
@@ -712,6 +742,23 @@ class AgenticChatCommand(sublime_plugin.WindowCommand):
             self.window.run_command("agent_new_chat")
             return
 
+        # --- Slash Command Interception ---
+        cmd, filepath, prompt = _extract_slash_command(messages)
+        if cmd == "edit":
+            # If the user typed no prompt after the filename, ask via input panel
+            self.window.run_command("agentic_edit_file", {
+                "file_path": filepath,
+                "prompt": prompt or None
+            })
+            return
+        elif cmd == "create":
+            self.window.run_command("agentic_create_file", {
+                "file_path": filepath,
+                "prompt": prompt or None
+            })
+            return
+        # -----------------------------------
+        
         view.settings().set("agentic_is_chat", True)
         view.set_syntax_file("Packages/Markdown/Markdown.sublime-syntax")
 
@@ -1140,8 +1187,12 @@ class AgenticEditFileCommand(sublime_plugin.WindowCommand):
         if not file_path and view and view.file_name():
             file_path = view.file_name()
 
+        if not file_path:
+            sublime.status_message("No file specified or active to edit")
+            return
+
         if not prompt:
-            filename = os.path.basename(file_path) if file_path else "file"
+            filename = os.path.basename(file_path)
             self.window.show_input_panel(
                 "Edit {} - Instruction:".format(filename),
                 "",
@@ -1157,26 +1208,84 @@ class AgenticEditFileCommand(sublime_plugin.WindowCommand):
         if not prompt:
             return
 
-        # Prepare user prompt with @file mention only if the file actually exists
-        if file_path and os.path.exists(file_path):
-            rel = file_path
-            for folder in self.window.folders():
-                if file_path.startswith(folder):
-                    rel = os.path.relpath(file_path, folder)
-                    break
-            user_msg = "Please edit @{}\n\nInstruction: {}".format(rel, prompt)
-        elif file_path:
-            user_msg = "Please create file `{}`\n\nInstruction: {}".format(file_path, prompt)
-        else:
-            user_msg = prompt
+        # Prepare user prompt with @file mention
+        rel = file_path
+        for folder in self.window.folders():
+            if file_path.startswith(folder):
+                rel = os.path.relpath(file_path, folder)
+                break
+        user_msg = "Please edit @{}\n\nInstruction: {}".format(rel, prompt)
 
         # Create system prompt containing the SEARCH/REPLACE rules
         default_system = sublime.load_settings("Agentic.sublime-settings").get("default_prompt", "")
         system_content = default_system + "\n" + EDIT_SYSTEM_INSTRUCTIONS.strip()
 
         chat_text = "# --- System ---\n{}\n\n# --- User ---\n{}\n".format(system_content, user_msg)
-        chat_view = _create_chat(self.window, "Edit " + (os.path.basename(file_path) if file_path else "File"), chat_text)
+        chat_view = _create_chat(self.window, "Edit " + os.path.basename(file_path), chat_text)
 
         messages = _build_messages_from_text(chat_text)
-        _printstatus("Starting edit for {}".format(os.path.basename(file_path) if file_path else "file"))
+        _printstatus("Starting edit for {}".format(os.path.basename(file_path)))
+        start_streaming(chat_view, messages)
+
+
+class AgenticCreateFileCommand(sublime_plugin.WindowCommand):
+    """
+    Prompt-driven new file creation command.
+    Accepts:
+      - file_path: target relative or absolute path for the new file
+      - prompt: creation instructions/requirements
+    """
+    def run(self, file_path=None, prompt=None):
+        if not file_path:
+            self.window.show_input_panel(
+                "New file path:",
+                "",
+                lambda target_path: self._on_filepath_entered(target_path, prompt),
+                None,
+                None
+            )
+            return
+
+        if not prompt:
+            self._ask_prompt(file_path)
+            return
+
+        self._on_prompt_entered(prompt, file_path)
+
+    def _on_filepath_entered(self, file_path, prompt=None):
+        file_path = file_path.strip()
+        if not file_path:
+            return
+
+        if not prompt:
+            self._ask_prompt(file_path)
+            return
+
+        self._on_prompt_entered(prompt, file_path)
+
+    def _ask_prompt(self, file_path):
+        filename = os.path.basename(file_path) or file_path
+        self.window.show_input_panel(
+            "Create {} - Instruction:".format(filename),
+            "",
+            lambda p: self._on_prompt_entered(p, file_path),
+            None,
+            None
+        )
+
+    def _on_prompt_entered(self, prompt, file_path):
+        if not prompt or not file_path:
+            return
+
+        user_msg = "Please create file `{}`\n\nInstruction: {}".format(file_path, prompt)
+
+        # Create system prompt containing the SEARCH/REPLACE rules
+        default_system = sublime.load_settings("Agentic.sublime-settings").get("default_prompt", "")
+        system_content = default_system + "\n" + EDIT_SYSTEM_INSTRUCTIONS.strip()
+
+        chat_text = "# --- System ---\n{}\n\n# --- User ---\n{}\n".format(system_content, user_msg)
+        chat_view = _create_chat(self.window, "Create " + os.path.basename(file_path), chat_text)
+
+        messages = _build_messages_from_text(chat_text)
+        _printstatus("Starting file creation for {}".format(os.path.basename(file_path)))
         start_streaming(chat_view, messages)
